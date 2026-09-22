@@ -1,128 +1,76 @@
 import "./styles.css";
+import WatchPanel from "./components/WatchPanel";
+import SamplingBoard from "./components/SamplingBoard";
+import AlarmBoard from "./components/AlarmBoard";
+import Timeline from "./components/Timeline";
+import { store, useWatchState } from "./store";
+import { activeAlarms, activeCriticals, shiftPromptAlarms } from "./rules";
 
-const project = {
-  "sourceNo": 1,
-  "id": "hxyfront-62001",
-  "port": 62001,
-  "title": "船舶轮机值班记录",
-  "domain": "船舶轮机",
-  "prompt": "我想做一个面向船舶轮机值班的前端记录系统，轮机员可以记录主机转速、滑油压力、冷却水温、燃油消耗、舱底水状态和异常巡检项。页面需要有值班班次切换、机舱参数看板、异常记录时间线、交接班摘要和按设备筛选的历史记录。数据先保存在浏览器本地，后续方便扩展成船队统一管理。",
-  "palette": [
-    "#0f766e",
-    "#2563eb",
-    "#f97316"
-  ],
-  "metrics": [
-    "主机转速",
-    "滑油压力",
-    "冷却水温",
-    "燃油消耗"
-  ],
-  "filters": [
-    "主机",
-    "发电机",
-    "泵组",
-    "舱底水"
-  ],
-  "fields": [
-    "值班班次",
-    "设备名称",
-    "参数读数",
-    "异常描述",
-    "处理状态",
-    "交接备注"
-  ],
-  "records": [
-    [
-      "08-12班",
-      "主机",
-      "转速82rpm，滑油压力0.42MPa",
-      "正常巡检"
-    ],
-    [
-      "12-16班",
-      "发电机#2",
-      "冷却水温偏高",
-      "已安排复查"
-    ],
-    [
-      "16-20班",
-      "舱底水",
-      "液位接近警戒线",
-      "已记录交班"
-    ]
-  ]
-};
+function MetricsStrip() {
+  const active = useWatchState(activeAlarms);
+  const pending = useWatchState(shiftPromptAlarms);
+  const criticals = useWatchState(activeCriticals);
+  const watchIndex = useWatchState((s) => s.watchIndex);
 
-function App() {
+  const cards = [
+    { label: "活动报警", value: active.length, hint: "未恢复前不重复新建" },
+    { label: "本班待确认提示", value: pending.length, hint: "确认只关闭本班提示" },
+    { label: "未恢复严重报警", value: criticals.length, hint: "未消除前禁止交接班" },
+    { label: "已完成班次数", value: watchIndex, hint: "每完成交接班 +1" },
+  ];
+
   return (
-    <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
-
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
+    <section className="metrics">
+      {cards.map((c) => (
+        <article key={c.label}>
+          <small>{c.label}</small>
+          <strong className={c.label === "未恢复严重报警" && c.value > 0 ? "metric-danger" : undefined}>
+            {c.value}
+          </strong>
+          <small className="metric-hint">{c.hint}</small>
+        </article>
+      ))}
+    </section>
   );
 }
 
-export default App;
+export default function App() {
+  const filter = useWatchState((s) => s.filter);
+
+  return (
+    <main className="app">
+      <header className="hero">
+        <p>hxyfront-62001 · Port 62001 · 数据仅存浏览器本地</p>
+        <h1>船舶轮机值班 · 报警确认闭环</h1>
+        <span>
+          参数越限按设备与参数生成唯一活动报警；轮机员确认只关闭本班提示，报警仍留看板；
+          下一班复测仍越限自动重新激活并升级为严重，补处理说明与复测值后方可消除；
+          本班存在未恢复严重报警时不得完成交接班。
+        </span>
+        <div className="hero-actions">
+          <span className="filter-readout">当前设备筛选：{filter}</span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              if (window.confirm("重置为演示初始数据？当前本地记录将被覆盖。")) store.reset();
+            }}
+          >
+            重置本地数据
+          </button>
+        </div>
+      </header>
+
+      <MetricsStrip />
+
+      <div className="layout">
+        <WatchPanel />
+        <div className="main-col">
+          <SamplingBoard />
+          <AlarmBoard />
+          <Timeline />
+        </div>
+      </div>
+    </main>
+  );
+}
